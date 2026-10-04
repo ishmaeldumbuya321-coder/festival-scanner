@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Festival Gate Verification App</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 16px; text-align: center; }
+    .card { background: #1e293b; border-radius: 12px; padding: 16px; max-width: 480px; margin: 0 auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    h1 { font-size: 1.25rem; margin-bottom: 12px; color: #38bdf8; }
+    #reader { width: 100%; border-radius: 8px; overflow: hidden; background: #000; }
+    #result-modal { display: none; position: fixed; inset: 0; padding: 24px; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; text-align: center; }
+    .valid { background: #15803d; color: #fff; }
+    .invalid { background: #b91c1c; color: #fff; }
+    .modal-title { font-size: 2.2rem; font-weight: 800; margin-bottom: 8px; }
+    .modal-detail { font-size: 1.1rem; opacity: 0.95; margin-bottom: 20px; }
+    button.btn-reset { background: #ffffff; color: #000; font-size: 1.1rem; font-weight: bold; padding: 14px 28px; border: none; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h1>🎟️ Festival Gate Scanner</h1>
+    <div id="reader"></div>
+  </div>
+
+  <div id="result-modal" style="display:none;">
+    <div class="modal-title" id="modal-title">VALID TICKET</div>
+    <div class="modal-detail" id="modal-detail">Code: FST-000000</div>
+    <button class="btn-reset" onclick="resetScanner()">Scan Next Ticket</button>
+  </div>
+
+  <script>
+    // REPLACE THESE WITH YOUR SUPABASE CREDENTIALS FROM STEP 1
+    const SUPABASE_URL = "YOUR_SUPABASE_URL_HERE";
+    const SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY_HERE";
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let html5QrcodeScanner;
+
+    async function onScanSuccess(decodedText) {
+      html5QrcodeScanner.pause();
+      const code = decodedText.trim();
+
+      // Check database for ticket
+      const { data: ticket, error } = await db
+        .from('tickets')
+        .select('*')
+        .eq('ticket_code', code)
+        .single();
+
+      if (error || !ticket) {
+        showModal('invalid', '❌ INVALID TICKET', `Code: ${code}<br>Ticket not found in database!`);
+      } else if (ticket.status === 'CHECKED IN') {
+        showModal('invalid', '⚠️️ ALREADY SCANNED!', `Code: ${code}<br>Scanned at: ${new Date(ticket.scanned_at).toLocaleTimeString()}`);
+      } else {
+        // Mark ticket as CHECKED IN
+        await db.from('tickets').update({
+          status: 'CHECKED IN',
+          scanned_at: new Date().toISOString(),
+          gatekeeper: 'Gate 1'
+        }).eq('ticket_code', code);
+
+        showModal('valid', '✅ VALID TICKET', `Code: ${code}<br>Type: ${ticket.ticket_type}`);
+      }
+    }
+
+    function showModal(type, title, detail) {
+      const modal = document.getElementById('result-modal');
+      modal.className = type;
+      document.getElementById('modal-title').innerHTML = title;
+      document.getElementById('modal-detail').innerHTML = detail;
+      modal.style.display = 'flex';
+    }
+
+    function resetScanner() {
+      document.getElementById('result-modal').style.display = 'none';
+      html5QrcodeScanner.resume();
+    }
+
+    window.onload = () => {
+      html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } });
+      html5QrcodeScanner.render(onScanSuccess);
+    };
+  </script>
+</body>
+</html>
